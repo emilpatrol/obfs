@@ -202,48 +202,69 @@ namespace DatasetObfuscator
     }
 
     public class OpaquePredicateRewriter : CSharpSyntaxRewriter
+{
+    private Random _rnd = new Random();
+
+
+    private string GetAlwaysTruePredicate()
     {
-        private Random _rnd = new Random();
-
-        public override SyntaxNode VisitBlock(BlockSyntax node)
+        string[] predicates = new string[]
         {
-            var visitedNode = (BlockSyntax)base.VisitBlock(node);
-            var newStatements = new List<StatementSyntax>();
+            "System.DateTime.Now.Year > 1900",
+            "System.Environment.TickCount != 2147483647", // Не равно MaxValue
+            "System.Guid.NewGuid().ToString().Length > 5",
+            "new System.Random().Next() >= 0",
+            "System.Diagnostics.Process.GetCurrentProcess().Id > 0",
+            "System.TimeSpan.TicksPerSecond > 0"
+        };
+        
+        return predicates[_rnd.Next(predicates.Length)];
+    }
 
-            foreach (var statement in visitedNode.Statements)
+    public override SyntaxNode VisitBlock(BlockSyntax node)
+    {
+        var visitedNode = (BlockSyntax)base.VisitBlock(node);
+        var newStatements = new List<StatementSyntax>();
+
+        foreach (var statement in visitedNode.Statements)
+        {
+            if (statement.ToString().Contains("_dead_"))
             {
-                
-                if (statement.ToString().Contains("_dead_"))
-                {
-                    newStatements.Add(statement);
-                    continue;
-                }
-
-              
-                if (statement is LocalDeclarationStatementSyntax)
-                {
-                    newStatements.Add(statement);
-                    continue; 
-                }
-
-                
-                if (_rnd.Next(0, 2) == 0)
-                {
-                    int a = _rnd.Next(1, 100);
-                    int b = _rnd.Next(101, 200);
-
-                    var condition = SyntaxFactory.ParseExpression($"{a} < {b}");
-                    var ifStatement = SyntaxFactory.IfStatement(condition, SyntaxFactory.Block(statement));
-
-                    newStatements.Add(ifStatement);
-                }
-                else
-                {
-                    newStatements.Add(statement);
-                }
+                newStatements.Add(statement);
+                continue;
             }
 
-            return visitedNode.WithStatements(SyntaxFactory.List(newStatements));
+            if (statement is LocalDeclarationStatementSyntax)
+            {
+                newStatements.Add(statement);
+                continue; 
+            }
+
+            if (_rnd.Next(0, 2) == 0)
+            {
+              
+                string conditionString = GetAlwaysTruePredicate();
+                var condition = SyntaxFactory.ParseExpression(conditionString);
+
+            
+                var elseBlock = SyntaxFactory.Block(
+                    SyntaxFactory.ParseStatement("int _junk_ = " + _rnd.Next(1000, 9999) + ";")
+                );
+
+                var ifStatement = SyntaxFactory.IfStatement(
+                    condition, 
+                    SyntaxFactory.Block(statement)
+                ).WithElse(SyntaxFactory.ElseClause(elseBlock));
+
+                newStatements.Add(ifStatement);
+            }
+            else
+            {
+                newStatements.Add(statement);
+            }
         }
+
+        return visitedNode.WithStatements(SyntaxFactory.List(newStatements));
     }
+}
 }
